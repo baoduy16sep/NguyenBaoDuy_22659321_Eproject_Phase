@@ -89,7 +89,7 @@ jobs:
         run: |
           curl -s -X POST http://localhost:3000/register \
             -H "Content-Type: application/json" \
-            -d '{"username": "TruongVyHao", "password": "12345"}' || true
+            -d '{"username": "NguyenBaoDuy", "password": "12345"}' || true
 
       # Test Product Service
       - name: 🧪 Run Product tests
