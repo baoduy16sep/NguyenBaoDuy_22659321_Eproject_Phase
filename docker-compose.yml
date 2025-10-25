@@ -1,0 +1,110 @@
+version: "3.9"
+
+services:
+  # 🐇 RabbitMQ Service (message broker)
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"    # Cổng message broker
+      - "15672:15672"  # Giao diện web quản lý RabbitMQ
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # 🍃 MongoDB Service
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27018:27017"  # MongoDB port
+    volumes:
+      - mongodb_data:/data/db   # Lưu trữ dữ liệu vĩnh viễn
+    networks:
+      - backend
+
+  # 🌐 API Gateway
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "3003:3003"
+    depends_on:
+      - auth
+      - product
+      - order
+    environment:
+      - AUTH_SERVICE_URL=http://auth:3000
+      - PRODUCT_SERVICE_URL=http://product:3001
+      - ORDER_SERVICE_URL=http://order:3002
+      - JWT_SECRET=secretkey123
+    networks:
+      - backend
+
+  # 👤 Auth Service
+  auth:
+    build: ./auth
+    container_name: auth
+    ports:
+      - "3000:3000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    environment:
+      - MONGODB_AUTH_URI=mongodb://mongodb:27017/authDB
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+      - JWT_SECRET=secretkey123
+    networks:
+      - backend
+
+  # 🛒 Product Service
+  product:
+    build: ./product
+    container_name: product
+    ports:
+      - "3001:3001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    environment:
+      - MONGODB_PRODUCT_URI=mongodb://mongodb:27017/productDB
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+      - JWT_SECRET=secretkey123
+    networks:
+      - backend
+
+  # 📦 Order Service
+  order:
+    build: ./order
+    container_name: order
+    ports:
+      - "3002:3002"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    environment:
+      - MONGODB_ORDER_URI=mongodb://mongodb:27017/orderDB
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+      - JWT_SECRET=secretkey123
+    networks:
+      - backend
+
+# 🌐 Khai báo network chung cho các container giao tiếp
+networks:
+  backend:
+    driver: bridge
+
+# 💾 Khai báo volume lưu dữ liệu MongoDB
+volumes:
+  mongodb_data:
