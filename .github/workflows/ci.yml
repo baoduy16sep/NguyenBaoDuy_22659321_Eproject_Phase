@@ -15,79 +15,81 @@ jobs:
     services:
       mongodb:
         image: mongo:latest
-        # don't rely on host port mapping; the job runner can reach the service by hostname "mongodb:27017"
+        ports:
+          - 27018:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
         options: >-
-          --health-cmd "mongo --eval 'db.adminCommand(\"ping\")' --quiet || exit 1"
-          --health-interval=5s --health-timeout=5s --health-retries=5
+          --health-cmd "mongosh --username root --password password --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+
       rabbitmq:
         image: rabbitmq:3-management
         ports:
           - 5672:5672
           - 15672:15672
         options: >-
-          --health-cmd "rabbitmq-diagnostics status || exit 1"
-          --health-interval=5s --health-timeout=5s --health-retries=5
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
 
     steps:
-      - name: Checkout repository
+      - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # Install dependencies for services
-      - name: Install dependencies (auth)
+      - name: 📦 Install dependencies (auth)
         working-directory: ./auth
-        run: npm install
+        run: npm ci
 
-      - name: Install dependencies (product)
+      - name: 📦 Install dependencies (product)
         working-directory: ./product
-        run: npm install
+        run: npm ci
 
-      - name: Install dependencies (order)
+      - name: 📦 Install dependencies (order)
         working-directory: ./order
-        run: npm install
+        run: npm ci
 
-      # Start Auth service (connects to mongodb hostname)
-      - name: Start Auth service
+      - name: 🚀 Start Auth service
         working-directory: ./auth
         env:
           PORT: 3000
-          # use service hostnames (mongodb) instead of localhost
           MONGODB_AUTH_URI: mongodb://root:password@mongodb:27017/authDB?authSource=admin
           JWT_SECRET: secretkey123
         run: |
-          echo "🚀 Starting Auth Service..."
-          nohup npm start > auth.log 2>&1 & echo $! > /tmp/auth_pid
-          echo "⏳ Waiting for Auth service to listen on port 3000..."
-          SUCCESS=false
-          for i in {1..30}; do
-            if nc -z 127.0.0.1 3000; then
-              echo "✅ Auth service is ready"
-              SUCCESS=true
+          echo "Starting Auth service..."
+          nohup npm start > auth.log 2>&1 &
+          echo $! > /tmp/auth_pid
+          echo "Waiting for Auth service to start..."
+          for i in {1..20}; do
+            if nc -z localhost 3000; then
+              echo "✅ Auth service ready"
               break
             fi
-            echo "⏳ Waiting... ($i/30)"
-            sleep 2
+            echo "⏳ Waiting... ($i/20)"
+            sleep 3
           done
-          if [ "$SUCCESS" = false ]; then
-            echo "❌ Auth service failed to start in time!"
-            cat auth.log || true
+          if ! nc -z localhost 3000; then
+            echo "❌ Auth service failed to start!"
+            cat auth.log
             exit 1
           fi
 
-      # Register a test user (safe to ignore failure if already exists)
-      - name: Register test user in Auth service
+      - name: 🧩 Register test user
         run: |
-          echo "🧩 Registering test user..."
           curl -s -X POST http://localhost:3000/register \
             -H "Content-Type: application/json" \
             -d '{"username": "TruongVyHao", "password": "12345"}' || true
 
-      # Run Product tests (connect to mongodb and rabbitmq by hostnames)
-      - name: Run Product tests
+      - name: 🧪 Run Product tests
         working-directory: ./product
         env:
           PORT: 3001
@@ -99,8 +101,7 @@ jobs:
           LOGIN_TEST_PASSWORD: '12345'
         run: npm test
 
-      # cleanup auth process
-      - name: Cleanup auth background process
+      - name: 🧹 Cleanup Auth service
         if: always()
         run: |
           if [ -f /tmp/auth_pid ]; then
@@ -119,19 +120,19 @@ jobs:
         service: [auth, product, order, api-gateway]
 
     steps:
-      - name: Checkout code
+      - name: 🧾 Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: 🧱 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: 🔑 Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push ${{ matrix.service }}
+      - name: 🏗️ Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.service }}
@@ -149,7 +150,7 @@ jobs:
     needs: build-and-push
 
     steps:
-      - name: Send summary message
+      - name: ✅ Send pipeline summary
         run: |
           echo "✅ CI/CD pipeline completed successfully!"
           echo "🧪 Tests passed on branch: ${{ github.ref_name }}"
