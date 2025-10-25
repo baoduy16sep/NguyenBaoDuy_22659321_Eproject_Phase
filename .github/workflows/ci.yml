@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: 🚀 CI/CD Pipeline
 
 on:
   push:
@@ -7,21 +7,21 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # 🧪 Job 1: TEST
+  # 🧪 JOB 1: TEST (CI)
   test:
     name: 🧪 Run Tests
     runs-on: ubuntu-latest
 
     services:
       mongodb:
-        image: mongo:latest
+        image: mongo:6
         ports:
-          - 27018:27017
+          - 27017:27017
         env:
           MONGO_INITDB_ROOT_USERNAME: root
           MONGO_INITDB_ROOT_PASSWORD: password
         options: >-
-          --health-cmd "mongosh --username root --password password --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'" 
+          --health-cmd="mongosh --username root --password password --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'" 
           --health-interval=10s 
           --health-timeout=5s 
           --health-retries=5
@@ -32,7 +32,7 @@ jobs:
           - 5672:5672
           - 15672:15672
         options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-cmd="rabbitmq-diagnostics -q ping"
           --health-interval=10s 
           --health-timeout=5s 
           --health-retries=5
@@ -46,35 +46,36 @@ jobs:
         with:
           node-version: 18
 
+      # Cài dependencies cho từng service
       - name: 📦 Install dependencies (auth)
         working-directory: ./auth
-        run: npm ci
+        run: npm install
 
       - name: 📦 Install dependencies (product)
         working-directory: ./product
-        run: npm ci
+        run: npm install
 
       - name: 📦 Install dependencies (order)
         working-directory: ./order
-        run: npm ci
+        run: npm install
 
+      # Khởi chạy Auth service để test các service khác
       - name: 🚀 Start Auth service
         working-directory: ./auth
         env:
           PORT: 3000
-          MONGODB_AUTH_URI: mongodb://root:password@mongodb:27017/authDB?authSource=admin
+          MONGODB_AUTH_URI: mongodb://root:password@localhost:27017/authDB?authSource=admin
           JWT_SECRET: secretkey123
         run: |
           echo "Starting Auth service..."
           nohup npm start > auth.log 2>&1 &
           echo $! > /tmp/auth_pid
-          echo "Waiting for Auth service to start..."
           for i in {1..20}; do
             if nc -z localhost 3000; then
               echo "✅ Auth service ready"
               break
             fi
-            echo "⏳ Waiting... ($i/20)"
+            echo "⏳ Waiting for Auth service to start ($i/20)..."
             sleep 3
           done
           if ! nc -z localhost 3000; then
@@ -83,24 +84,27 @@ jobs:
             exit 1
           fi
 
+      # Đăng ký tài khoản test
       - name: 🧩 Register test user
         run: |
           curl -s -X POST http://localhost:3000/register \
             -H "Content-Type: application/json" \
             -d '{"username": "TruongVyHao", "password": "12345"}' || true
 
+      # Test Product Service
       - name: 🧪 Run Product tests
         working-directory: ./product
         env:
           PORT: 3001
-          MONGODB_AUTH_URI: mongodb://root:password@mongodb:27017/authDB?authSource=admin
-          MONGODB_PRODUCT_URI: mongodb://root:password@mongodb:27017/productDB?authSource=admin
-          RABBITMQ_URL: amqp://rabbitmq:5672
+          MONGODB_AUTH_URI: mongodb://root:password@localhost:27017/authDB?authSource=admin
+          MONGODB_PRODUCT_URI: mongodb://root:password@localhost:27017/productDB?authSource=admin
+          RABBITMQ_URL: amqp://localhost:5672
           JWT_SECRET: secretkey123
           LOGIN_TEST_USER: NguyenBaoDuy
           LOGIN_TEST_PASSWORD: '12345'
         run: npm test
 
+      # Dọn tiến trình Auth service sau khi test xong
       - name: 🧹 Cleanup Auth service
         if: always()
         run: |
@@ -109,11 +113,11 @@ jobs:
             rm -f /tmp/auth_pid
           fi
 
-  # 🐳 Job 2: BUILD & PUSH DOCKER
+  # 🐳 JOB 2: BUILD & PUSH (CD)
   build-and-push:
     name: 🐳 Build and Push Docker Images
     runs-on: ubuntu-latest
-    needs: test
+    needs: test  # chỉ chạy nếu test thành công
 
     strategy:
       matrix:
@@ -143,7 +147,7 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/eproject-${{ matrix.service }}:latest
           cache-to: type=inline
 
-  # 📢 Job 3: NOTIFY
+  # 📢 JOB 3: NOTIFY (Summary)
   notify:
     name: 📢 Deployment Notification
     runs-on: ubuntu-latest
@@ -154,5 +158,9 @@ jobs:
         run: |
           echo "✅ CI/CD pipeline completed successfully!"
           echo "🧪 Tests passed on branch: ${{ github.ref_name }}"
-          echo "🐳 Docker images pushed to Docker Hub: ${{ secrets.DOCKER_USERNAME }}/eproject-*"
+          echo "🐳 Docker images pushed to Docker Hub:"
+          echo "   - ${{ secrets.DOCKER_USERNAME }}/eproject-auth"
+          echo "   - ${{ secrets.DOCKER_USERNAME }}/eproject-product"
+          echo "   - ${{ secrets.DOCKER_USERNAME }}/eproject-order"
+          echo "   - ${{ secrets.DOCKER_USERNAME }}/eproject-api-gateway"
           echo "🔖 Commit: ${{ github.sha }}"
