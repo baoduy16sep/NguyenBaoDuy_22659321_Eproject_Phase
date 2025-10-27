@@ -1,3 +1,17 @@
+Hệ thống thương mại điện tử theo kiến trúc microservices, quản lý người dùng, sản phẩm, đơn hàng và giao tiếp qua API Gateway.
+5 dịch vụ chính:
++ api-gateway
++ auth
++ product
++ order
+  
+Ý nghĩa từng dịch vụ
+api-gateway: Cổng vào, định tuyến request đến service tương ứng.
+auth: Xác thực, đăng nhập, quản lý JWT.
+product: Quản lý sản phẩm.
+order: Xử lý đơn hàng, kết nối product và auth.
+
+Test POSTMAN:
 Register
 <img width="1709" height="995" alt="image" src="https://github.com/user-attachments/assets/44567168-40cb-4db0-b695-4d5a88a3d6c1" />
 Login
